@@ -29,6 +29,8 @@ This project provides three production-ready n8n workflows for automated clinica
 
 ## 🗂️ Master SOAP Template
 
+> 📄 **[Download the full master template PDF](./Clinical-Progress-Note_Master.pdf)**
+
 All workflows produce output conforming to the following clinical progress note structure:
 
 ```
