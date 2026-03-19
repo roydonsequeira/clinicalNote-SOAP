@@ -1,0 +1,318 @@
+{
+  "name": "clinicalNote(TTS)",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "={{ `\nYou are a **Senior Medical Scribe** creating a detailed clinical progress note. Your task is to extract, synthesize, and structure the following 'RAW CLINICAL INPUT' into the required JSON schema.\n\n### CONTEXT\nPatient: ${$json.patient_details.name} (DOB: ${$json.patient_details.dob}, Gender: ${$json.patient_details.gender}, ID: ${$json.patient_details.mrn})\nProvider: ${$json.provider_details.name}\nDate: ${$json.encounter_date}\n\n### RAW CLINICAL INPUT\n\"${$json.clinical_text_input}\"\n\n### INSTRUCTIONS\nOutput a valid JSON object. Do not include markdown wrappers (e.g., \\`\\`\\`json).\nThe keys MUST match the Required JSON Structure exactly.\nPopulate every field. Use \"NA\" when information is not explicitly available.\n\nCRITICAL DATA FIDELITY CONSTRAINTS:\n1. Vital signs must be copied EXACTLY as in the raw input.\n2. Subjective and Assessment must include all positive and negative symptoms.\n\nRequired JSON Structure:\n{\n  \"patient_name\": \"${$json.patient_details.name}\",\n  \"patient_dob\": \"${$json.patient_details.dob}\",\n  \"patient_id\": \"${$json.patient_details.mrn}\",\n  \"visit_date\": \"${$json.encounter_date}\",\n  \"practitioner\": \"${$json.provider_details.name}\",\n  \"practitioner_credentials\": \"MD\",\n  \"chief_complaint\": \"string\",\n  \"subjective\": {\n    \"hpi_narrative\": \"string\",\n    \"symptoms_reported\": \"string\",\n    \"progress_since_last\": \"string\",\n    \"compliance_notes\": \"string\"\n  },\n  \"objective\": {\n    \"bp\": \"string\",\n    \"heart_rate\": \"string\",\n    \"temperature\": \"string\",\n    \"o2_saturation\": \"string\",\n    \"physical_exam_findings\": \"string\",\n    \"lab_results\": \"string\",\n    \"imaging_results\": \"string\"\n  },\n  \"assessment\": {\n    \"primary_diagnosis\": \"string\",\n    \"icd_10_code\": \"string\",\n    \"problem_list\": \"string\",\n    \"assessment_summary\": \"string\"\n  },\n  \"plan\": {\n    \"medication_plan\": \"string\",\n    \"intervention_details\": \"string\",\n    \"follow_up_plan\": \"string\",\n    \"referrals\": \"string\"\n  }\n}\n` }}\n"
+      },
+      "id": "cc6ad848-d526-4aea-894f-d7d2eb311ca7",
+      "name": "Code - Build SOAP Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        400
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT resource FROM practitioner WHERE resource @> jsonb_build_object('telecom', jsonb_build_array(jsonb_build_object('system','email','value',$1))) LIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ $json.body.provider_email }}"
+        }
+      },
+      "id": "dd5d4068-1ff1-4b5b-88e1-ed5741e8feae",
+      "name": "verifyPractitioner",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        64
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT resource FROM patient WHERE resource->>'email' = $1 LIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ $('clinicalNote').item.json.body.patient_email }}"
+        }
+      },
+      "id": "65ca18c9-32f1-4f54-9b9f-a33db9d7d1b4",
+      "name": "verifyPatient",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        64
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * CodeParse – TTS workflow\n \n */\n\n// ---------- Raw input ----------\nconst webhook = $items('clinicalNote')[0]?.json?.body || {};\nconst clinicalText = webhook.text || '';\n\n// ---------- Patient ----------\nconst patientRow = $items('verifyPatient')[0]?.json || {};\nconst patient = patientRow.resource || {};\n\nconst patientName =\n  patient.name?.[0]\n    ? `${(patient.name[0].given || []).join(' ')} ${patient.name[0].family || ''}`.trim()\n    : 'NA';\n\nconst patientDob = patient.birthDate || 'NA';\nconst patientGender = patient.gender || 'NA';\n\nconst patientMrn =\n  patient.identifier?.find(i => i.system?.toLowerCase().includes('mrn'))?.value || 'NA';\n\n// ---------- Practitioner ----------\nconst practitionerRow = $items('verifyPractitioner')[0]?.json || {};\nconst practitioner = practitionerRow.resource || {};\n\nconst practitionerName =\n  practitioner.name?.[0]\n    ? `${(practitioner.name[0].prefix || []).join(' ')} ${(practitioner.name[0].given || []).join(' ')} ${practitioner.name[0].family || ''}`.trim()\n    : 'NA';\n\nconst practitionerEmail =\n  practitioner.telecom?.find(t => t.system === 'email')?.value || 'NA';\n\n// ---------- Encounter date ----------\nconst encounterDate =\n  webhook.encounter_date || new Date().toISOString().split('T')[0];\n\n// ---------- Final v17 contract ----------\nreturn [\n  {\n    json: {\n      clinical_text_input: clinicalText,\n      encounter_date: encounterDate,\n\n      patient_details: {\n        name: patientName,\n        dob: patientDob,\n        gender: patientGender,\n        mrn: patientMrn\n      },\n\n      provider_details: {\n        name: practitionerName,\n        email: practitionerEmail\n      }\n    }\n  }\n];\n"
+      },
+      "id": "f1f5f68d-b1b9-4dfc-9f8d-9ef5639a6d08",
+      "name": "codeParse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=={{ `\nYou are a **Senior Medical Scribe** creating a detailed clinical progress note. Your task is to extract, synthesize, and structure the following 'RAW CLINICAL INPUT' into the required JSON schema.\n\n### CONTEXT\nPatient: ${$json.patient_details.name} (DOB: ${$json.patient_details.dob}, Gender: ${$json.patient_details.gender}, ID: ${$json.patient_details.mrn})\nProvider: ${$json.provider_details.name}\nDate: ${$json.encounter_date}\n\n### RAW CLINICAL INPUT\n\"${$json.clinical_text_input}\"\n\n### INSTRUCTIONS\nOutput a valid JSON object. Do not include markdown wrappers (e.g., \\`\\`\\`json).\nThe keys MUST match the Required JSON Structure exactly.\nPopulate every field. Use \"NA\" when information is not explicitly available.\n\nCRITICAL DATA FIDELITY CONSTRAINTS:\n1. Vital signs must be copied EXACTLY as in the raw input.\n2. Subjective and Assessment must include all positive and negative symptoms.\n\nRequired JSON Structure:\n{\n  \"patient_name\": \"${$json.patient_details.name}\",\n  \"patient_dob\": \"${$json.patient_details.dob}\",\n  \"patient_id\": \"${$json.patient_details.mrn}\",\n  \"visit_date\": \"${$json.encounter_date}\",\n  \"practitioner\": \"${$json.provider_details.name}\",\n  \"practitioner_credentials\": \"MD\",\n  \"chief_complaint\": \"string\",\n  \"subjective\": {\n    \"hpi_narrative\": \"string\",\n    \"symptoms_reported\": \"string\",\n    \"progress_since_last\": \"string\",\n    \"compliance_notes\": \"string\"\n  },\n  \"objective\": {\n    \"bp\": \"string\",\n    \"heart_rate\": \"string\",\n    \"temperature\": \"string\",\n    \"o2_saturation\": \"string\",\n    \"physical_exam_findings\": \"string\",\n    \"lab_results\": \"string\",\n    \"imaging_results\": \"string\"\n  },\n  \"assessment\": {\n    \"primary_diagnosis\": \"string\",\n    \"icd_10_code\": \"string\",\n    \"problem_list\": \"string\",\n    \"assessment_summary\": \"string\"\n  },\n  \"plan\": {\n    \"medication_plan\": \"string\",\n    \"intervention_details\": \"string\",\n    \"follow_up_plan\": \"string\",\n    \"referrals\": \"string\"\n  }\n}\n` }}\n",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        224,
+        64
+      ],
+      "id": "fd7174a7-5398-436b-b3f0-e70b059d9ab5",
+      "name": "promptChain"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * CleanOutputJSON – SOAP → TTS script\n * Safe parsing + clinically constrained narration\n */\n\nconst raw = $json.text || '';\nconst cleaned = raw.replace(/```json|```/g, '').trim();\n\nlet note;\ntry {\n  note = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error('Invalid JSON from LLM – cannot generate TTS');\n}\n\n// ---------- Safe extractors ----------\nconst chiefComplaint = note.chief_complaint || 'NA';\nconst hpi = note.subjective?.hpi_narrative || 'NA';\nconst assessment = note.assessment?.assessment_summary || 'NA';\nconst plan = note.plan?.follow_up_plan || 'NA';\n\n// ---------- Clinically appropriate spoken summary ----------\nconst script = `\nClinical summary.\nChief complaint: ${chiefComplaint}.\nHistory of present illness: ${hpi}.\nAssessment: ${assessment}.\nPlan: ${plan}.\n`.replace(/\\s+/g, ' ').trim();\n\nreturn [\n  {\n    json: {\n      script,\n      voice_id: '21m00Tcm4TlvDq8ikWAM' \n    }\n  }\n];\n"
+      },
+      "id": "a5421f78-5886-4dcf-9945-fa256796e961",
+      "name": "cleanOutputJSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "audio/mpeg"
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "inline; filename=\"clinical_note.mp3\""
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "066ed198-0fad-4d81-9c5e-e78f9ef96c30",
+      "name": "respondSucessAudio",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1024,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.elevenlabs.io/v1/text-to-speech/{{ $json.voice_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "xi-api-key",
+              "value": "YOUR_ELEVENLABS_API_KEY"
+            },
+            {
+              "name": "Accept",
+              "value": "audio/mpeg"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"{{ $json.script }}\",\n  \"model_id\": \"eleven_multilingual_v2\",\n  \"voice_settings\": {\n    \"stability\": 0.5,\n    \"similarity_boost\": 0.6,\n    \"style\": 0.4,\n    \"use_speaker_boost\": true\n  }\n}\n",
+        "options": {}
+      },
+      "id": "6d8023c4-74b0-4a83-9d1a-1610f02b3ea0",
+      "name": "text2Speech",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        800,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemma3:4b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        304,
+        288
+      ],
+      "id": "3d663b45-2bbb-4337-8400-28c29ea050f1",
+      "name": "gemma3",
+      "credentials": {
+        "ollamaApi": {
+          "id": "YOUR_OLLAMA_CREDENTIAL_ID",
+          "name": "gemma 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clinical-note-tts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "9efbcee2-c6b7-44c3-a210-3efb973040e5",
+      "name": "clinicalNote",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -672,
+        64
+      ],
+      "webhookId": "a3064741-d84d-4f20-b225-314666578da6"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Code - Build SOAP Prompt": {
+      "main": [
+        []
+      ]
+    },
+    "verifyPractitioner": {
+      "main": [
+        [
+          {
+            "node": "verifyPatient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "verifyPatient": {
+      "main": [
+        [
+          {
+            "node": "codeParse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "codeParse": {
+      "main": [
+        [
+          {
+            "node": "promptChain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "promptChain": {
+      "main": [
+        [
+          {
+            "node": "cleanOutputJSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cleanOutputJSON": {
+      "main": [
+        [
+          {
+            "node": "text2Speech",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "text2Speech": {
+      "main": [
+        [
+          {
+            "node": "respondSucessAudio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gemma3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "promptChain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "clinicalNote": {
+      "main": [
+        [
+          {
+            "node": "verifyPractitioner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7567a040-247f-49d2-9e5e-60b833289515",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "id": "V7jvIkbhPZgf9CkZ",
+  "tags": []
+}
