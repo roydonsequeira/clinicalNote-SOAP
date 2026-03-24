@@ -1,391 +1,544 @@
 <div align="center">
 
-# 🏥 Clinical SOAP Note Generator
+<img src="https://img.shields.io/badge/-%F0%9F%8F%A5%20Healthcare%20Automation-1a1a2e?style=for-the-badge" />
 
-**AI-powered clinical documentation workflows built on n8n**
+# Appointment Scheduler
 
-Generate structured SOAP notes from text or voice — automatically.
+### Rule-based Healthcare Appointment Management REST API
 
-![n8n](https://img.shields.io/badge/n8n-workflow-orange?style=for-the-badge&logo=n8n)
-![Ollama](https://img.shields.io/badge/Ollama-Gemma_3-blue?style=for-the-badge)
-![ElevenLabs](https://img.shields.io/badge/ElevenLabs-STT_%7C_TTS-purple?style=for-the-badge)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-FHIR-blue?style=for-the-badge&logo=postgresql)
+*Book · Reschedule · Cancel · Retrieve — all through clean HTTP endpoints*
+
+<br/>
+
+[![n8n](https://img.shields.io/badge/n8n-Workflow_Engine-FF6D5A?style=for-the-badge&logo=n8n&logoColor=white)](https://n8n.io)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-FHIR_Database-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Google Calendar](https://img.shields.io/badge/Google_Calendar-Availability-4285F4?style=for-the-badge&logo=googlecalendar&logoColor=white)](https://calendar.google.com)
+[![Gmail](https://img.shields.io/badge/Gmail-Notifications-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](https://gmail.com)
+
+<br/>
+
+![Status](https://img.shields.io/badge/Status-Production_Ready-brightgreen?style=flat-square)
+![License](https://img.shields.io/badge/License-Portfolio-blue?style=flat-square)
+![Standard](https://img.shields.io/badge/Standard-FHIR_R4-purple?style=flat-square)
 
 </div>
 
 ---
 
-## 📋 Overview
+<div align="center">
 
-This project provides three production-ready n8n workflows for automated clinical note generation. A clinician or intake system sends raw clinical input — as typed text or a voice recording — and receives a fully structured **SOAP** (Subjective, Objective, Assessment, Plan) note in return, conforming to the master clinical progress note template.
+## ✨ Why This Exists
 
-| Workflow | File | Input | Output |
-|---|---|---|---|
-| **TTT** | `clinicalNote(TTT).json` | Raw clinical text | SOAP note JSON |
-| **STT** | `clinicalNote(STT).json` | Audio recording | SOAP note JSON |
-| **TTS** | `clinicalNote(TTS).json` | Raw clinical text | SOAP note + spoken audio |
+</div>
 
----
+> A **fully deterministic**, no-LLM appointment backend that any frontend, mobile app, or EHR system can integrate with via REST. No AI ambiguity — every request follows an exact, predictable pipeline through conflict checks, calendar validation, database persistence, and email delivery.
 
-## 🗂️ Master SOAP Template
+<br/>
 
-> 📄 **[Download the full master template PDF](./Clinical-Progress-Note_Master.pdf)**
+<div align="center">
 
-All workflows produce output conforming to the following clinical progress note structure:
+| 🔒 Zero AI Dependency | ⚡ Low Latency | 📋 FHIR R4 | 🗓️ Calendar Sync | 📧 Auto Notifications |
+|:---:|:---:|:---:|:---:|:---:|
+| Fully rule-based | Direct node pipeline | Standards compliant | Google Calendar | HTML emails via Gmail |
 
-```
-Clinical Progress Note
-══════════════════════════════════════════════════
-
-Patient Information
-  ├── Patient Name      → {{patient_name}}
-  ├── Date of Birth     → {{patient_dob}}
-  ├── Patient ID        → {{patient_id}}
-  ├── Date of Visit     → {{visit_date}}
-  ├── Practitioner      → {{practitioner}}, {{practitioner_credentials}}
-  └── Chief Complaint   → {{chief_complaint}}
-
-S — Subjective  (Patient's own words & reported history)
-  ├── HPI Narrative           → {{hpi_narrative}}
-  ├── Reported Symptoms       → {{symptoms_reported}}
-  ├── Progress Since Last     → {{progress_since_last}}
-  └── Compliance with Plan    → {{compliance_notes}}
-
-O — Objective  (Measurable, observable clinical data)
-  ├── Vital Signs
-  │     ├── BP              → {{bp}}
-  │     ├── Heart Rate      → {{heart_rate}}
-  │     ├── Temperature     → {{temperature}}
-  │     └── O2 Saturation   → {{o2_saturation}}
-  ├── Physical Exam         → {{physical_exam_findings}}
-  ├── Labs Reviewed         → {{lab_results}}
-  └── Imaging               → {{imaging_results}}
-
-A — Assessment  (Clinician's diagnosis & interpretation)
-  ├── Primary Diagnosis (ICD-10) → {{primary_diagnosis}} ({{icd_10_code}})
-  ├── Problem List               → {{problem_list}}
-  └── Clinical Rationale         → {{assessment_summary}}
-
-P — Plan  (Course of action)
-  ├── Medication Changes     → {{medication_plan}}
-  ├── Interventions          → {{intervention_details}}
-  ├── Follow-up Instructions → {{follow_up_plan}}
-  └── Referrals              → {{referrals}}
-```
+</div>
 
 ---
 
-## ⚙️ Architecture
+## 🗺️ API Endpoints at a Glance
 
-```
-HTTP Request (Text or Audio)
-           │
-           ▼
-    ┌─────────────┐
-    │   Webhook   │  ← n8n entry point
-    └──────┬──────┘
-           │
-     ┌─────┴──────┐
-     ▼            ▼
-┌─────────┐  ┌──────────┐     [STT only]
-│ Verify  │  │ ElevenLabs│ ←── Audio transcription
-│Practit. │  │  Scribe   │
-└────┬────┘  └─────┬─────┘
-     ▼             │
-┌─────────┐        │
-│ Verify  │        │
-│ Patient │        │
-└────┬────┘        │
-     └──────┬──────┘
-            ▼
-     ┌─────────────┐
-     │  codeParse  │  ← Normalize patient + practitioner + clinical input
-     └──────┬──────┘
-            ▼
-     ┌─────────────┐
-     │  Gemma 3 4B │  ← Local LLM via Ollama
-     │ (LLM Chain) │
-     └──────┬──────┘
-            ▼
-     ┌─────────────┐
-     │ Clean JSON  │  ← Strip markdown, parse output
-     └──────┬──────┘
-            ▼
-     ┌──────────────────────────┐
-     │  Response                │
-     │  JSON (TTT / STT)        │
-     │  audio/mpeg (TTS)        │
-     └──────────────────────────┘
-```
+<div align="center">
+
+| Method | Endpoint | Action |
+|:---:|:---|:---|
+| `POST` | `/webhook/appointments/create` | 📌 Book a new appointment |
+| `POST` | `/webhook/appointments/update` | 🔄 Reschedule an appointment |
+| `POST` | `/webhook/appointments/cancel` | ❌ Cancel an appointment |
+| `POST` | `/webhook/appointments/get` | 🔍 Fetch appointment by ID |
+| `POST` | `/webhook/appointments/upcoming` | 📅 List upcoming appointments |
+
+</div>
 
 ---
 
-## 🔌 Workflow Triggers & API Reference
+## 🏗️ Flow Architecture
 
-### 1️⃣ TTT — Text to Text
+<details open>
+<summary><b>📌 Book Appointment</b></summary>
 
-> Accepts raw clinical text → returns SOAP note as JSON
+<br/>
 
-**Endpoint**
 ```
-POST /webhook/clinical-note/start
+POST /appointments/create
+         │
+         ▼
+  ┌─────────────────┐
+  │ Validate Input  │  checks: organization_id, patient_email,
+  └───────┬─────────┘          practitioner_email, start, end
+          │
+          ▼
+  ┌─────────────────┐
+  │ checkConflict   │  PostgreSQL OVERLAPS — is the practitioner free?
+  └───────┬─────────┘
+          │
+          ▼
+  ┌─────────────────┐
+  │ checkCalendar   │  Google Calendar free/busy check
+  └───────┬─────────┘
+          │
+     ─────┴──────────────────────────────────
+     │ available = false          │ available = true
+     ▼                            ▼
+ ┌──────────┐            ┌─────────────────┐
+ │ 409 Error│            │  mergeResource  │  generate logical_id
+ └──────────┘            │  build FHIR obj │  appt-{uuid}
+                         └───────┬─────────┘
+                                 │
+                                 ▼
+                         ┌─────────────────┐
+                         │ createAppointment│  INSERT → PostgreSQL
+                         └───────┬─────────┘
+                                 │
+                                 ▼
+                         ┌─────────────────┐
+                         │  createEvent    │  → Google Calendar
+                         └───────┬─────────┘
+                                 │
+                                 ▼
+                         ┌─────────────────┐
+                         │  Send Email     │  → Gmail HTML confirmation
+                         └───────┬─────────┘
+                                 │
+                                 ▼
+                           ✅ 200 Success
+```
+
+</details>
+
+<details>
+<summary><b>🔄 Reschedule Appointment</b></summary>
+
+<br/>
+
+```
+POST /appointments/update
+         │
+         ▼
+  fetchAppointment  →  SELECT by logical_id + org_id
+         │
+    ─────┴──────────────────
+    │ not found             │ found
+    ▼                       ▼
+ 404 Error        checktimeConflict1  (excludes current appt)
+                           │
+                  checkAvailability1  (Google Calendar)
+                           │
+                   mergeResource1     patch start / end / description
+                           │
+                  updateAppointment   UPDATE + version_id++
+                           │
+                   updateEvent        PATCH Google Calendar
+                           │
+                  updateConfirmation  Gmail reschedule email
+                           │
+                     ✅ 200 Success
+```
+
+</details>
+
+<details>
+<summary><b>❌ Cancel Appointment</b></summary>
+
+<br/>
+
+```
+POST /appointments/cancel
+         │
+         ▼
+  fetchAppointment  →  SELECT by logical_id + org_id
+         │
+         ▼
+  mergeResource2    →  status = "cancelled" + cancellationReason
+         │
+         ▼
+  cancelAppointment →  UPDATE PostgreSQL
+         │
+         ▼
+  cancelEvent       →  DELETE Google Calendar event
+         │
+         ▼
+  cancelConfirmation → Gmail cancellation email
+         │
+         ▼
+    ✅ 200 Success
+```
+
+</details>
+
+<details>
+<summary><b>🔍 Get / 📅 Upcoming</b></summary>
+
+<br/>
+
+```
+POST /appointments/get              POST /appointments/upcoming
+          │                                    │
+          ▼                                    ▼
+  SELECT by logical_id              SELECT future booked appts
+  + organization_id                 WHERE start >= NOW()
+          │                         ORDER BY start ASC
+          ▼                                    │
+  200 JSON response                  200 JSON response
+```
+
+</details>
+
+---
+
+## 🔌 API Reference
+
+### 📌 Book Appointment
+
+```http
+POST /webhook/appointments/create
 Content-Type: application/json
 ```
 
-**Request Body**
+<details open>
+<summary>Request · Response · Errors</summary>
+
+**Request**
 ```json
 {
-  "provider_email": "provider@clinic.com",
-  "patient_email": "patient@example.com",
-  "appointment_id": "APPT-XXXX",
-  "mode": "text",
-  "text_input": "<raw clinical notes from the encounter>",
-  "metadata": {
-    "source": "patient",
-    "language": "en-US"
-  }
+  "organization_id":    "uuid-of-organization",
+  "patient_email":      "patient@example.com",
+  "practitioner_email": "provider@clinic.com",
+  "start":              "2025-12-22T10:00:00+05:30",
+  "end":                "2025-12-22T10:30:00+05:30",
+  "purpose_of_visit":   "Follow-up consultation"
 }
 ```
 
-**Example Clinical Input**
-```
-34-year-old male with 4 days of fever, cough, sore throat, congestion,
-headache, chills, and fatigue. Cough initially dry, now mildly productive.
-Denies chest pain, shortness of breath, nausea, vomiting, or diarrhea.
-Partial relief with paracetamol. Vitals: Temp 37.8 C, BP 118/74, HR 88,
-RR 16, SpO2 98% on room air. Mild pharyngeal erythema. Lungs clear.
-COVID and rapid strep negative.
-```
-
-**Response**
+**✅ Success — 200**
 ```json
 {
   "status": "success",
-  "code": 200,
-  "message": "Clinical SOAP note generated successfully.",
-  "data": {
-    "soap_note": {
-      "patient_name": "{{patient_name}}",
-      "patient_dob": "{{patient_dob}}",
-      "patient_id": "{{patient_id}}",
-      "visit_date": "{{visit_date}}",
-      "practitioner": "{{practitioner_name}}",
-      "practitioner_credentials": "MD",
-      "chief_compliant": "Patient presents with cough, congestion, and subjective fever.",
-      "subjective": {
-        "hpi_narrative": "Patient reports 4 days of fever, cough, sore throat, congestion, headache, chills, and fatigue...",
-        "symptoms_reported": "Fever, cough, sore throat, congestion, headache, chills, fatigue. Denies chest pain, shortness of breath.",
-        "progress_since_last": "NA",
-        "compliance_notes": "NA"
-      },
-      "objective": {
-        "bp": "118/74",
-        "heart_rate": "88",
-        "temperature": "37.8 C",
-        "o2_saturation": "98 percent on room air",
-        "physical_exam_findings": "Mild pharyngeal erythema. Lungs clear bilaterally. Heart rhythm normal. Abdomen soft, non-tender.",
-        "lab_results": "COVID negative. Rapid strep negative.",
-        "imaging_results": "None"
-      },
-      "assessment": {
-        "primary_diagnosis": "Upper Respiratory Infection",
-        "icd_10_code": "J06.9",
-        "problem_list": "Upper Respiratory Infection",
-        "assessment_summary": "Presentation consistent with viral upper respiratory infection based on symptom duration, negative rapid tests, and clinical findings."
-      },
-      "plan": {
-        "medication_plan": "Acetaminophen 325mg every 6 hours as needed. Saline nasal spray for congestion.",
-        "intervention_details": "Patient educated on hydration and rest.",
-        "follow_up_plan": "Return if symptoms worsen or do not improve within 72 hours.",
-        "referrals": "None"
-      }
-    }
-  },
-  "timestamp": "2025-12-16T00:00:00.000Z"
+  "appointment_logical_id": "appt-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "message": "Appointment created successfully"
 }
 ```
 
----
+**❌ Errors**
 
-### 2️⃣ STT — Speech to Text
+| Code | Reason |
+|:---:|:---|
+| `400` | Missing required fields |
+| `409` | Time slot already booked in database |
+| `409` | Time unavailable on Google Calendar |
 
-> Accepts a clinical audio recording → transcribes it → returns SOAP note as JSON
-
-**Endpoint**
-```
-POST /webhook/clinical-note-audio
-Content-Type: multipart/form-data
-```
-
-**Request Fields**
-
-| Field | Type | Description |
-|---|---|---|
-| `data` | File | Audio recording of the clinical encounter (`.wav`, `.mp3`, etc.) |
-| `practitioner_email` | String | Practitioner's registered email |
-| `patient_email` | String | Patient's registered email |
-
-**cURL Example**
-```bash
-curl -X POST http://localhost:5678/webhook/clinical-note-audio \
-  -F "data=@recording.wav" \
-  -F "practitioner_email=provider@clinic.com" \
-  -F "patient_email=patient@example.com"
-```
-
-**Response** — Same SOAP note JSON structure as TTT.
-
-> Audio is transcribed using **ElevenLabs Scribe v1** before being processed by the LLM.
+</details>
 
 ---
 
-### 3️⃣ TTS — Text to Speech
+### 🔄 Reschedule Appointment
 
-> Accepts raw clinical text → generates SOAP note → returns spoken summary as audio
-
-**Endpoint**
-```
-POST /webhook/clinical-note-tts
+```http
+POST /webhook/appointments/update
 Content-Type: application/json
 ```
 
-**Request Body** — Same structure as TTT.
+<details>
+<summary>Request · Response</summary>
 
-**Response**
+```json
+{
+  "appointment_logical_id": "appt-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "organization_id":        "uuid-of-organization",
+  "practitioner_email":     "provider@clinic.com",
+  "start":                  "2025-12-23T14:00:00+05:30",
+  "end":                    "2025-12-23T14:30:00+05:30",
+  "purpose_of_visit":       "Updated reason"
+}
 ```
-HTTP 200
-Content-Type: audio/mpeg
-Content-Disposition: inline; filename="clinical_note.mp3"
 
-[binary audio stream]
-```
+**✅ Success — 200** → Same structure as create.
 
-The spoken summary includes:
-- Chief Complaint
-- History of Present Illness
-- Assessment Summary
-- Follow-up Plan
+</details>
 
 ---
 
-## 🧩 Node Reference
+### ❌ Cancel Appointment
 
-### Shared Nodes (all 3 workflows)
+```http
+POST /webhook/appointments/cancel
+Content-Type: application/json
+```
 
-| Node | Type | Purpose |
-|---|---|---|
-| `clinicalNote` | Webhook | Entry point — receives the HTTP request |
-| `verifyPractitioner` | PostgreSQL | Looks up practitioner FHIR resource by email |
-| `verifyPatient` | PostgreSQL | Looks up patient FHIR resource by email |
-| `codeParse` | Code | Normalizes patient, practitioner & clinical text into one payload |
-| `promptChain` | LLM Chain | Sends structured prompt to Gemma 3 via Ollama |
-| `cleanOutputJSON` | Code | Strips LLM markdown, returns parsed JSON |
-| `respondSuccess` | Respond to Webhook | Returns final JSON response |
+<details>
+<summary>Request · Response</summary>
 
-### STT-only Nodes
+```json
+{
+  "appointment_logical_id": "appt-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "organization_id":        "uuid-of-organization",
+  "reason":                 "Patient request"
+}
+```
 
-| Node | Type | Purpose |
-|---|---|---|
-| `speech2Text` | HTTP Request | Sends audio to ElevenLabs Scribe v1 for transcription |
-| `extractTranscription` | Code | Extracts `text` field from transcription response |
-| `merge` | Merge | Joins verified patient/practitioner data with transcription |
+**✅ Success — 200**
+```json
+{
+  "status": "success",
+  "message": "Appointment cancelled successfully"
+}
+```
 
-### TTS-only Nodes
-
-| Node | Type | Purpose |
-|---|---|---|
-| `cleanOutputJSON` | Code | Extracts HPI, assessment & plan for the spoken script |
-| `text2Speech` | HTTP Request | Sends script to ElevenLabs TTS API, receives audio |
-| `respondSucessAudio` | Respond to Webhook | Returns binary audio response |
+</details>
 
 ---
 
-## 🗄️ Database Schema (FHIR)
+### 🔍 Get Appointment
 
-Patient and practitioner data is stored as **FHIR R4** JSON resources in PostgreSQL:
+```http
+POST /webhook/appointments/get
+Content-Type: application/json
+```
+
+<details>
+<summary>Request</summary>
+
+```json
+{
+  "appointment_logical_id": "appt-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "organization_id":        "uuid-of-organization"
+}
+```
+
+</details>
+
+---
+
+### 📅 Get Upcoming Appointments
+
+```http
+POST /webhook/appointments/upcoming
+Content-Type: application/json
+```
+
+<details>
+<summary>Request</summary>
+
+```json
+{
+  "appointment_organization_id": "uuid-of-organization",
+  "practitioner_email":          "provider@clinic.com",
+  "limit":                       10
+}
+```
+
+</details>
+
+---
+
+## 🧩 Node Map
+
+<details>
+<summary><b>📌 Book Flow nodes</b></summary>
+
+| Node | Type | Role |
+|---|:---:|---|
+| `bookAppointment` | Webhook | Entry — receives POST request |
+| `checktimeConflict` | PostgreSQL | OVERLAPS query against booked slots |
+| `checkAvailibilty` | Google Calendar | Free/busy check |
+| `avalibilityConflict` | IF | Branch: available vs unavailable |
+| `calConflict` | Respond | 409 — calendar unavailable |
+| `mergeResouce` | Code | Generates `appt-{uuid}`, builds FHIR resource |
+| `createAppintment` | PostgreSQL | INSERT with patient/practitioner JOIN |
+| `createEvent1` | Google Calendar | Create event with attendees |
+| `createConfirmation` | Gmail | HTML booking confirmation email |
+| `success` | Respond | 200 final response |
+
+</details>
+
+<details>
+<summary><b>🔄 Reschedule Flow nodes</b></summary>
+
+| Node | Type | Role |
+|---|:---:|---|
+| `updateAppointment` | Webhook | Entry |
+| `fetchAppointment` | PostgreSQL | SELECT by logical_id + org |
+| `appointmentFound` | IF | 404 branch if missing |
+| `notFound` | Respond | 404 error |
+| `checktimeConflict1` | PostgreSQL | Conflict check excluding current appt |
+| `checkAvailibilty1` | Google Calendar | Free/busy for new slot |
+| `mergeResouce1` | Code | Patch start/end, increment version_id |
+| `updateAppointment1` | PostgreSQL | UPDATE resource + version |
+| `updateEvent` | Google Calendar | PATCH calendar event |
+| `updateConfirmation` | Gmail | Reschedule email |
+
+</details>
+
+<details>
+<summary><b>❌ Cancel Flow nodes</b></summary>
+
+| Node | Type | Role |
+|---|:---:|---|
+| `cancelAppointment` | Webhook | Entry |
+| `fetchAppointment1` | PostgreSQL | Fetch existing record |
+| `mergeResouce2` | Code | Set `status = cancelled` + reason |
+| `cancelAppointment1` | PostgreSQL | UPDATE with cancelled resource |
+| `cancelEvent` | Google Calendar | Delete calendar event |
+| `cancelConfirmation` | Gmail | Cancellation email |
+
+</details>
+
+---
+
+## 🗄️ Database Schema
 
 ```sql
-CREATE TABLE practitioner (
-  resource JSONB
-);
-
-CREATE TABLE patient (
-  resource JSONB
+CREATE TABLE appointment (
+  id               SERIAL PRIMARY KEY,
+  logical_id       TEXT UNIQUE NOT NULL,          -- "appt-{uuid}"
+  version_id       INTEGER DEFAULT 1,             -- increments on each update
+  patient_id       UUID REFERENCES patient(id),
+  practitioner_id  UUID REFERENCES practitioner(id),
+  organization_id  UUID NOT NULL,
+  resource         JSONB NOT NULL,                -- FHIR R4 Appointment
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  last_updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
-**Lookup queries used internally:**
+**FHIR R4 `resource` structure:**
+
+```json
+{
+  "resourceType": "Appointment",
+  "id":           "appt-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "status":       "booked",
+  "start":        "2025-12-22T10:00:00+05:30",
+  "end":          "2025-12-22T10:30:00+05:30",
+  "description":  "Follow-up consultation"
+}
+```
+
+<details>
+<summary><b>Conflict Detection SQL</b></summary>
 
 ```sql
--- Find practitioner by email
-SELECT resource FROM practitioner
-WHERE resource @> jsonb_build_object(
-  'telecom', jsonb_build_array(
-    jsonb_build_object('system', 'email', 'value', $1)
-  )
-) LIMIT 1;
-
--- Find patient by email
-SELECT resource FROM patient
-WHERE resource->>'email' = $1 LIMIT 1;
+SELECT 1
+FROM   appointment a
+JOIN   practitioner pr ON pr.id = a.practitioner_id
+WHERE  a.organization_id        = $1::uuid
+  AND  pr.logical_id            = $2::text
+  AND  a.resource->>'status'    = 'booked'
+  AND  (
+         (a.resource->>'start')::timestamptz,
+         (a.resource->>'end')::timestamptz
+       )
+       OVERLAPS
+       ( $3::timestamptz, $4::timestamptz )
+LIMIT  1;
 ```
+
+</details>
 
 ---
 
-## 🚀 Setup Guide
+## 📧 Email Notifications
+
+> All emails are sent as styled **HTML** via Gmail OAuth2 and include: Appointment ID, Practitioner, Date, Time, and Purpose of visit.
+
+| Event | Subject Line |
+|---|---|
+| ✅ New booking | `Your Appointment Has Been Confirmed` |
+| 🔄 Reschedule | `Your Appointment Has Been Updated` |
+| ❌ Cancellation | `Appointment Cancelled` |
+
+---
+
+## 🆚 This vs. AI Agent Approach
+
+> This workflow is the **deterministic REST API counterpart** to [`dataAgent`](https://github.com/roydonsequeira/dataAgent) — an LLM-powered conversational booking system. Two architectures, one problem.
+
+| | **appointment-scheduler** | **dataAgent** |
+|---|:---:|:---:|
+| Trigger | REST API | Chat interface |
+| AI / LLM | ✗ None | ✓ Llama 3.1 8B |
+| Calendar | Google Calendar | Cal.com |
+| Flow control | Deterministic nodes | LLM agent decisions |
+| Integration | Any backend / EHR | Patient-facing chat |
+| Latency | ⚡ Low | 🐢 Higher (inference) |
+| Predictability | 100% deterministic | Probabilistic |
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
-- [n8n](https://n8n.io/) (self-hosted)
-- [Ollama](https://ollama.com/) with `gemma3:4b` pulled
-- PostgreSQL with FHIR-structured patient/practitioner data
-- [ElevenLabs](https://elevenlabs.io/) account (for STT and TTS workflows)
+- [n8n](https://n8n.io/) self-hosted instance
+- PostgreSQL with `patient`, `practitioner`, `appointment` tables
+- Google Calendar + Gmail connected via OAuth2 in n8n
 
-### Steps
+### Setup
 
-**1. Import workflows into n8n**
+**1 — Import**
 
-Go to **Settings → Import Workflow** and import each `.json` file.
+In n8n: **Settings → Import Workflow** → select `appointment.json`
 
-**2. Configure credentials in n8n**
+**2 — Connect credentials**
 
-| Credential | Where used | Notes |
-|---|---|---|
-| PostgreSQL | `verifyPractitioner`, `verifyPatient` | Your Cloud SQL or local Postgres |
-| Ollama API | `gemma3` node | Default: `http://localhost:11434` |
-| ElevenLabs API Key | `speech2Text`, `text2Speech` | Set as `xi-api-key` header |
+| Credential | Nodes |
+|---|---|
+| PostgreSQL | All DB nodes |
+| Google Calendar OAuth2 | `checkAvailibilty`, `createEvent1`, `updateEvent`, `cancelEvent` |
+| Gmail OAuth2 | `createConfirmation`, `updateConfirmation`, `cancelConfirmation` |
 
-**3. (Optional) Google Cloud SQL — use the Auth Proxy**
+**3 — Set Calendar ID**
 
-If your PostgreSQL is hosted on Google Cloud SQL, run the proxy locally before starting n8n:
+In `checkAvailibilty`, `checkAvailibilty1`, and `createEvent1` — replace `YOUR_GOOGLE_CALENDAR_ID` with the practitioner's calendar email.
+
+**4 — (Optional) Cloud SQL Proxy**
 
 ```powershell
 .\cloud-sql-proxy.exe YOUR_PROJECT:YOUR_REGION:YOUR_INSTANCE --port=5432
 ```
 
-Then set Postgres host to `127.0.0.1` in your n8n credential.
+**5 — Test**
 
-**4. Activate workflows and test**
-
-Use the example requests above or import into Postman/Insomnia.
+```bash
+curl -X POST http://localhost:5678/webhook/appointments/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "organization_id":    "your-org-uuid",
+    "patient_email":      "patient@example.com",
+    "practitioner_email": "provider@clinic.com",
+    "start":              "2025-12-22T10:00:00+05:30",
+    "end":                "2025-12-22T10:30:00+05:30",
+    "purpose_of_visit":   "Follow-up consultation"
+  }'
+```
 
 ---
 
 ## 🔐 Credential Placeholders
 
-The workflow JSON files contain the following placeholders. Replace them with your actual values inside n8n:
-
 | Placeholder | Replace with |
 |---|---|
-| `YOUR_ELEVENLABS_API_KEY` | Your ElevenLabs API key |
-| `YOUR_POSTGRES_CREDENTIAL_ID` | Your n8n Postgres credential ID |
-| `YOUR_OLLAMA_CREDENTIAL_ID` | Your n8n Ollama credential ID |
+| `YOUR_POSTGRES_CREDENTIAL_ID` | n8n Postgres credential ID |
+| `YOUR_GOOGLE_CALENDAR_CREDENTIAL_ID` | n8n Google Calendar OAuth2 credential ID |
+| `YOUR_GMAIL_CREDENTIAL_ID` | n8n Gmail OAuth2 credential ID |
+| `YOUR_GOOGLE_CALENDAR_ID` | Practitioner's Google Calendar ID (their email) |
 | `YOUR_N8N_INSTANCE_ID` | Your n8n instance ID |
 
-> ⚠️ Never commit real API keys or credentials to version control.
+> ⚠️ **Never** commit real credentials, API keys, or personal email addresses to version control.
 
 ---
 
-## 📄 License
+<div align="center">
 
-This project is for educational and portfolio purposes.
+Made for portfolio purposes · FHIR R4 · n8n · PostgreSQL · Google Workspace
+
+</div>

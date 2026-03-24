@@ -1,0 +1,518 @@
+{
+  "name": "AI Personal Brand Amplifier - Main Pipeline",
+  "nodes": [
+    {
+      "id": "sticky-001",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-420, 200],
+      "parameters": {
+        "content": "## AI Personal Brand Amplifier\n\n### Prerequisites\n- Ollama on localhost:11434\n  - `ollama pull nomic-embed-text`\n  - `ollama pull llama3.2:3b`\n  - `ollama pull mistral:7b-instruct`\n- Qdrant on localhost:6333\n  - Create: content_memory (dim 768)\n  - Create: pending_posts (dim 768)\n- Telegram Bot credentials in n8n\n- Replace YOUR_TELEGRAM_CHAT_ID\n\nSee BRAND-AMPLIFIER-SETUP.md",
+        "height": 380,
+        "width": 360,
+        "color": 7
+      }
+    },
+    {
+      "id": "node-001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [0, 400],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "node-002",
+      "name": "Fetch Hacker News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [240, 200],
+      "parameters": {
+        "method": "GET",
+        "url": "https://hn.algolia.com/api/v1/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "query", "value": "AI LLM agents machine learning" },
+            { "name": "tags", "value": "story" },
+            { "name": "hitsPerPage", "value": "15" },
+            { "name": "numericFilters", "value": "points>30" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-003",
+      "name": "Fetch GitHub AI Repos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [240, 400],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.github.com/search/repositories",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "q", "value": "topic:llm topic:ai-agents stars:>100" },
+            { "name": "sort", "value": "updated" },
+            { "name": "order", "value": "desc" },
+            { "name": "per_page", "value": "10" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/vnd.github+json" },
+            { "name": "User-Agent", "value": "PersonalBrandAmplifier/1.0" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-004",
+      "name": "Fetch HuggingFace Blog RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 600],
+      "parameters": {
+        "url": "https://huggingface.co/blog/feed.xml"
+      }
+    },
+    {
+      "id": "node-005",
+      "name": "Merge HN and GitHub",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [480, 300],
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-006",
+      "name": "Merge All Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [720, 400],
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-007",
+      "name": "Normalize Content Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 400],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const output = [];\n\nfor (const item of $input.all()) {\n  const d = item.json;\n\n  // Hacker News: API returns one item with a .hits array\n  if (d.hits && Array.isArray(d.hits)) {\n    for (const h of d.hits) {\n      if (!h.title) continue;\n      output.push({\n        json: {\n          title: h.title,\n          description: (h.story_text || '').replace(/<[^>]+>/g, '').slice(0, 500),\n          url: h.url || ('https://news.ycombinator.com/item?id=' + h.objectID),\n          source: 'hackernews',\n          score: h.points || 0,\n          content_id: 'hn_' + h.objectID,\n          timestamp: new Date().toISOString()\n        }\n      });\n    }\n    continue;\n  }\n\n  // GitHub: API returns one item with an .items array\n  if (d.items && Array.isArray(d.items) && d.items[0] && d.items[0].full_name) {\n    for (const r of d.items) {\n      output.push({\n        json: {\n          title: r.full_name + ': ' + (r.description || 'No description'),\n          description: r.description || '',\n          url: r.html_url,\n          source: 'github',\n          score: r.stargazers_count || 0,\n          content_id: 'gh_' + r.id,\n          timestamp: new Date().toISOString()\n        }\n      });\n    }\n    continue;\n  }\n\n  // RSS: rssFeedRead node outputs individual feed entries\n  if (d.title && (d.link || d.guid)) {\n    output.push({\n      json: {\n        title: d.title,\n        description: (d.contentSnippet || d.content || d.summary || '').replace(/<[^>]+>/g, '').slice(0, 500),\n        url: d.link || d.guid,\n        source: 'rss',\n        score: 0,\n        content_id: 'rss_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),\n        timestamp: new Date().toISOString()\n      }\n    });\n  }\n}\n\nreturn output.length > 0 ? output : $input.all();"
+      }
+    },
+    {
+      "id": "node-008",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1200, 400],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "node-009",
+      "name": "Generate Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1440, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/embeddings",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ model: 'nomic-embed-text', prompt: $json.title + ' ' + ($json.description || '') }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-010",
+      "name": "Attach Embedding to Item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, 400],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Merge Ollama embedding response back with the original item data\nconst ollamaResp = $input.first().json;\nconst originalItem = $('Split In Batches').item.json;\n\nreturn [{\n  json: Object.assign({}, originalItem, {\n    embedding: ollamaResp.embedding || []\n  })\n}];"
+      }
+    },
+    {
+      "id": "node-011",
+      "name": "Search Qdrant Similarity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1920, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:6333/collections/content_memory/points/search",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ vector: $json.embedding, limit: 1, score_threshold: 0, with_payload: false }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "node-012",
+      "name": "Evaluate Similarity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2160, 400],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Determine if this content is a duplicate (similarity >= 0.85)\nconst searchResp = $input.first().json;\nconst item = $('Attach Embedding to Item').item.json;\n\nconst results = searchResp.result || [];\nconst maxScore = results.length > 0 ? results[0].score : 0;\nconst isDuplicate = maxScore >= 0.85;\n\nreturn [{\n  json: Object.assign({}, item, {\n    maxScore: maxScore,\n    isDuplicate: isDuplicate\n  })\n}];"
+      }
+    },
+    {
+      "id": "node-013",
+      "name": "Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2400, 400],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "dup-check",
+              "leftValue": "={{ $json.isDuplicate }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "node-014",
+      "name": "Skip - Already Seen",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2640, 200],
+      "parameters": {}
+    },
+    {
+      "id": "node-015",
+      "name": "Upsert to Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2640, 540],
+      "parameters": {
+        "method": "PUT",
+        "url": "http://localhost:6333/collections/content_memory/points",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ points: [{ id: Math.floor(Math.random() * 2147483647), vector: $json.embedding, payload: { title: $json.title, url: $json.url, source: $json.source, content_id: $json.content_id, timestamp: $json.timestamp } }] }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-016",
+      "name": "Restore Data After Upsert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2880, 540],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Qdrant upsert replaces item data with its ACK response.\n// Restore original item from the upstream node.\nconst item = $('Evaluate Similarity').item.json;\nreturn [{ json: Object.assign({}, item, { qdrant_stored: true }) }];"
+      }
+    },
+    {
+      "id": "node-017",
+      "name": "Scout Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3120, 540],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/chat",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ model: 'llama3.2:3b', messages: [{ role: 'system', content: 'You are a content scout for an AI engineer personal brand on LinkedIn and X.\\n\\nEvaluate if the content is worth creating a post about.\\n\\nPOST if: Novel AI/ML research, new frameworks or tools, significant industry shifts, practical AI engineering insights, high engagement potential.\\nIGNORE if: Generic tech news, unrelated to AI/ML, already widely covered, pure marketing, low technical value.\\n\\nReply with ONLY a JSON object, nothing else before or after it.\\nFormat: {\"verdict\":\"POST\"} or {\"verdict\":\"IGNORE\"}' }, { role: 'user', content: 'Title: ' + $json.title + '\\n\\nDescription: ' + ($json.description || 'N/A').slice(0, 300) + '\\n\\nSource: ' + $json.source }], stream: false }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-018",
+      "name": "Parse Scout Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3360, 540],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const scoutResp = $input.first().json;\nconst item = $('Restore Data After Upsert').item.json;\n\nconst content = (scoutResp.message && scoutResp.message.content)\n  ? scoutResp.message.content\n  : (scoutResp.response || '');\n\nvar verdict = 'IGNORE';\ntry {\n  var m = content.match(/\\{[^{}]+\\}/);\n  if (m) {\n    var parsed = JSON.parse(m[0]);\n    verdict = (parsed.verdict || '').toUpperCase() === 'POST' ? 'POST' : 'IGNORE';\n  } else if (content.toUpperCase().indexOf('\"POST\"') !== -1 || content.toUpperCase().indexOf(':POST') !== -1) {\n    verdict = 'POST';\n  }\n} catch(e) {\n  verdict = 'IGNORE';\n}\n\nreturn [{\n  json: Object.assign({}, item, {\n    scout_verdict: verdict,\n    scout_raw: content.slice(0, 200)\n  })\n}];"
+      }
+    },
+    {
+      "id": "node-019",
+      "name": "Should Post?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3600, 540],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "post-check",
+              "leftValue": "={{ $json.scout_verdict }}",
+              "rightValue": "POST",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "node-020",
+      "name": "Skip - Not Worth Posting",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [3840, 340],
+      "parameters": {}
+    },
+    {
+      "id": "node-021",
+      "name": "Strategist Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3840, 680],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/chat",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ model: 'mistral:7b-instruct', messages: [{ role: 'system', content: 'You are a strategic content analyst for a senior AI engineer building a personal brand.\\n\\nExtract the highest-value insight from technical content and frame it compellingly.\\n\\nVoice: Technically credible, systems thinker, forward-looking. Not hype.\\n\\nExtract three things:\\n- hook: One provocative line, max 15 words, creates curiosity or challenges an assumption\\n- insight: The core technical shift or depth most people miss (2-3 sentences)\\n- implication: What this specifically enables for AI engineers (1-2 sentences)\\n\\nReply with ONLY a JSON object:\\n{\"hook\":\"...\",\"insight\":\"...\",\"implication\":\"...\"}' }, { role: 'user', content: 'Title: ' + $json.title + '\\n\\nDescription: ' + ($json.description || 'N/A').slice(0, 400) + '\\n\\nURL: ' + $json.url }], stream: false }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-022",
+      "name": "Parse Strategist Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4080, 680],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const stratResp = $input.first().json;\nconst item = $('Parse Scout Response').item.json;\n\nconst content = (stratResp.message && stratResp.message.content)\n  ? stratResp.message.content\n  : (stratResp.response || '');\n\nvar hook = '';\nvar insight = '';\nvar implication = '';\n\ntry {\n  var m = content.match(/\\{[\\s\\S]*?\\}/);\n  if (m) {\n    var parsed = JSON.parse(m[0]);\n    hook = parsed.hook || '';\n    insight = parsed.insight || '';\n    implication = parsed.implication || '';\n  }\n} catch(e) {}\n\nreturn [{\n  json: Object.assign({}, item, {\n    hook: hook || item.title,\n    insight: insight || (item.description ? item.description.slice(0, 280) : 'Key development in the AI space.'),\n    implication: implication || 'Worth tracking for AI engineers and builders.'\n  })\n}];"
+      }
+    },
+    {
+      "id": "node-023",
+      "name": "Format Post Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4320, 680],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const item = $input.first().json;\n\n// LinkedIn Post (long-form, ~300 words)\nvar linkedinPost = 'Most people will miss this.\\n\\n' +\n  item.hook + '\\n\\n' +\n  \"Here's the real shift:\\n\" +\n  '-> ' + item.insight + '\\n\\n' +\n  'What this enables:\\n' +\n  '* ' + item.implication + '\\n\\n' +\n  'Source: ' + item.url + '\\n\\n' +\n  '#AI #MachineLearning #AIEngineering #LLM #AIAgents #BuildInPublic';\n\n// X/Twitter Post (280 char max)\nvar xFull = item.hook + '\\n\\n-> ' + item.insight + '\\n\\n' + item.url + ' #AI #ML';\nvar xPost = xFull.length > 280 ? xFull.slice(0, 277) + '...' : xFull;\n\nvar postId = 'post_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);\n\nvar approvalMsg = '[NEW POST READY FOR APPROVAL]\\n\\n' +\n  'Source: ' + item.source.toUpperCase() + '\\n' +\n  'Title: ' + item.title.slice(0, 120) + '\\n' +\n  'Scout: ' + item.scout_verdict + '\\n\\n' +\n  '=== LINKEDIN DRAFT ===\\n' + linkedinPost + '\\n\\n' +\n  '=== X/TWITTER DRAFT ===\\n' + xPost + '\\n\\n' +\n  'Post ID: ' + postId;\n\nreturn [{\n  json: Object.assign({}, item, {\n    linkedinPost: linkedinPost,\n    xPost: xPost,\n    postId: postId,\n    approvalMessage: approvalMsg\n  })\n}];"
+      }
+    },
+    {
+      "id": "node-024",
+      "name": "Send Telegram Approval",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [4560, 680],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.approvalMessage }}",
+        "additionalFields": {
+          "reply_markup": "={{ JSON.stringify({ inline_keyboard: [[{ text: 'Approve & Post', callback_data: 'approve_' + $json.postId }, { text: 'Reject', callback_data: 'reject_' + $json.postId }], [{ text: 'View Source', url: $json.url }]] }) }}"
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot Account"
+        }
+      }
+    },
+    {
+      "id": "node-025",
+      "name": "Store Pending Post in Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4800, 680],
+      "parameters": {
+        "method": "PUT",
+        "url": "http://localhost:6333/collections/pending_posts/points",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ points: [{ id: Math.floor(Math.random() * 2147483647), vector: new Array(768).fill(0), payload: { postId: $json.postId, linkedinPost: $json.linkedinPost, xPost: $json.xPost, url: $json.url, title: $json.title, source: $json.source, status: 'pending', createdAt: new Date().toISOString() } }] }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          { "node": "Fetch Hacker News", "type": "main", "index": 0 },
+          { "node": "Fetch GitHub AI Repos", "type": "main", "index": 0 },
+          { "node": "Fetch HuggingFace Blog RSS", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Hacker News": {
+      "main": [
+        [{ "node": "Merge HN and GitHub", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch GitHub AI Repos": {
+      "main": [
+        [{ "node": "Merge HN and GitHub", "type": "main", "index": 1 }]
+      ]
+    },
+    "Merge HN and GitHub": {
+      "main": [
+        [{ "node": "Merge All Sources", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch HuggingFace Blog RSS": {
+      "main": [
+        [{ "node": "Merge All Sources", "type": "main", "index": 1 }]
+      ]
+    },
+    "Merge All Sources": {
+      "main": [
+        [{ "node": "Normalize Content Items", "type": "main", "index": 0 }]
+      ]
+    },
+    "Normalize Content Items": {
+      "main": [
+        [{ "node": "Split In Batches", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [{ "node": "Generate Embedding", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Embedding": {
+      "main": [
+        [{ "node": "Attach Embedding to Item", "type": "main", "index": 0 }]
+      ]
+    },
+    "Attach Embedding to Item": {
+      "main": [
+        [{ "node": "Search Qdrant Similarity", "type": "main", "index": 0 }]
+      ]
+    },
+    "Search Qdrant Similarity": {
+      "main": [
+        [{ "node": "Evaluate Similarity", "type": "main", "index": 0 }]
+      ]
+    },
+    "Evaluate Similarity": {
+      "main": [
+        [{ "node": "Is Duplicate?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Is Duplicate?": {
+      "main": [
+        [{ "node": "Skip - Already Seen", "type": "main", "index": 0 }],
+        [{ "node": "Upsert to Qdrant", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upsert to Qdrant": {
+      "main": [
+        [{ "node": "Restore Data After Upsert", "type": "main", "index": 0 }]
+      ]
+    },
+    "Restore Data After Upsert": {
+      "main": [
+        [{ "node": "Scout Agent", "type": "main", "index": 0 }]
+      ]
+    },
+    "Scout Agent": {
+      "main": [
+        [{ "node": "Parse Scout Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Scout Response": {
+      "main": [
+        [{ "node": "Should Post?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Should Post?": {
+      "main": [
+        [{ "node": "Strategist Agent", "type": "main", "index": 0 }],
+        [{ "node": "Skip - Not Worth Posting", "type": "main", "index": 0 }]
+      ]
+    },
+    "Strategist Agent": {
+      "main": [
+        [{ "node": "Parse Strategist Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Strategist Response": {
+      "main": [
+        [{ "node": "Format Post Content", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Post Content": {
+      "main": [
+        [{ "node": "Send Telegram Approval", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Telegram Approval": {
+      "main": [
+        [{ "node": "Store Pending Post in Qdrant", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "11111111-1111-1111-1111-111111111111",
+  "id": "brand-amplifier-main-pipeline"
+}
