@@ -1,0 +1,7 @@
+# Separate project repos (each has its own git history)
+Roydon brand amplifier/
+
+# Workflow files belonging to other repos
+appointment.json
+dataAgent.json
+READMEAPP.md
